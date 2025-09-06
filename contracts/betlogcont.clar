@@ -176,4 +176,113 @@
         (if (and (is-eq prediction PREDICTION_DROP) (< end-price start-price))  
           BET_OUTCOME_WIN 
           ;; Otherwise it's a loss 
-          BET_OUTCOME_LOSE))))) 
+          BET_OUTCOME_LOSE)))))  
+          ;; Time and block management 
+(define-private (get-current-timestamp) 
+  ;; Convert block height to approximate timestamp 
+  ;; Stacks blocks are ~10 minutes apart on average 
+  (* block-height u600)) 
+ 
+(define-private (is-bet-expired (end-time uint)) 
+  (> (get-current-timestamp) end-time)) 
+ 
+(define-private (calculate-end-time (duration uint)) 
+  (+ (get-current-timestamp) duration)) 
+ 
+;; Price oracle helper functions 
+(define-private (get-latest-price) 
+  (let ((current-time (get-current-timestamp))) 
+    (map-get? price-data { timestamp: current-time }))) 
+ 
+(define-private (is-price-data-fresh (timestamp uint)) 
+  (let ((current-time (get-current-timestamp))) 
+    (<= (- current-time timestamp) ORACLE_TOLERANCE))) 
+ 
+(define-private (store-price-data (price uint) (timestamp uint)) 
+  (begin 
+    (map-set price-data  
+      { timestamp: timestamp } 
+      { 
+        price: price, 
+        source: tx-sender, 
+        block-height: block-height, 
+        confidence: u10000 ;; Full confidence for now 
+      }) 
+    true)) 
+ 
+;; User statistics management
+(define-private (update-user-stats-on-bet (user principal) (amount uint)) 
+  (let ((current-stats (default-to  
+                         { total-bets: u0, total-wagered: u0, total-won: u0,  
+                           total-lost: u0, win-streak: u0, best-streak: u0,  
+                           last-bet-time: u0 } 
+                         (map-get? user-stats { user: user })))) 
+    (map-set user-stats { user: user } 
+      (merge current-stats { 
+        total-bets: (+ (get total-bets current-stats) u1), 
+        total-wagered: (+ (get total-wagered current-stats) amount), 
+        last-bet-time: (get-current-timestamp) 
+      })) 
+    true)) 
+ 
+(define-private (update-user-stats-on-resolution (user principal) (outcome uint) (payout uint) 
+(bet-amount uint)) 
+  (let ((current-stats (unwrap-panic (map-get? user-stats { user: user })))) 
+    (if (is-eq outcome BET_OUTCOME_WIN) 
+      ;; Update for win 
+      (let ((new-streak (+ (get win-streak current-stats) u1))) 
+        (map-set user-stats { user: user } 
+          (merge current-stats { 
+            total-won: (+ (get total-won current-stats) payout), 
+            win-streak: new-streak, 
+            best-streak: (if (> new-streak (get best-streak current-stats))  
+                           new-streak  
+                           (get best-streak current-stats)) 
+          }))) 
+      ;; Update for loss or draw 
+      (map-set user-stats { user: user } 
+        (merge current-stats { 
+          total-lost: (+ (get total-lost current-stats) bet-amount), 
+          win-streak: u0 ;; Reset streak on loss/draw 
+        }))) 
+    true)) 
+    ;; Daily pool management for risk balancing 
+(define-private (get-today-timestamp) 
+  ;; Get start of current day timestamp 
+  (let ((current-time (get-current-timestamp))) 
+    (- current-time (mod current-time u86400)))) 
+ 
+(define-private (update-daily-pool (prediction uint) (amount uint)) 
+  (let ((today (get-today-timestamp)) 
+        (current-pool (default-to  
+                        { total-rise-bets: u0, total-drop-bets: u0,  
+                          total-volume: u0, bet-count: u0 } 
+                        (map-get? daily-pools { date: today })))) 
+    (map-set daily-pools { date: today } 
+      (if (is-eq prediction PREDICTION_RISE) 
+        (merge current-pool { 
+          total-rise-bets: (+ (get total-rise-bets current-pool) amount), 
+          total-volume: (+ (get total-volume current-pool) amount), 
+          bet-count: (+ (get bet-count current-pool) u1) 
+        }) 
+        (merge current-pool { 
+          total-drop-bets: (+ (get total-drop-bets current-pool) amount), 
+          total-volume: (+ (get total-volume current-pool) amount), 
+          bet-count: (+ (get bet-count current-pool) u1) 
+        }))) 
+    true))
+    ;; Bet management helpers 
+(define-private (generate-bet-id) 
+  (let ((current-nonce (var-get bet-id-nonce))) 
+    (var-set bet-id-nonce (+ current-nonce u1)) 
+    current-nonce)) 
+ 
+(define-private (add-user-active-bet (user principal) (bet-id uint)) 
+  (begin 
+    (map-set user-active-bets { user: user, bet-id: bet-id } { active: true }) 
+    true)) 
+ 
+(define-private (remove-user-active-bet (user principal) (bet-id uint)) 
+  (begin 
+    (map-delete user-active-bets { user: user, bet-id: bet-id }) 
+    true))
