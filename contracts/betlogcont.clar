@@ -152,3 +152,28 @@
     false)) 
  
 ;; Betting calculation functions
+(define-private (calculate-payout (bet-amount uint) (won bool)) 
+  (if won 
+    ;; Winner gets back their bet + profit minus house edge 
+    (let ((gross-payout (* bet-amount u2))) ;; 2x multiplier for winners 
+      (- gross-payout (/ (* gross-payout HOUSE_EDGE) BASIS_POINTS))) 
+    u0)) ;; Losers get nothing 
+ 
+(define-private (calculate-house-fee (bet-amount uint)) 
+  (/ (* bet-amount HOUSE_EDGE) BASIS_POINTS)) 
+ 
+(define-private (determine-bet-outcome (start-price uint) (end-price uint) (prediction uint)) 
+  (let ((price-diff (if (> end-price start-price)  
+                      (- end-price start-price)  
+                      (- start-price end-price)))) 
+    (if 
+      ;; If prices are essentially the same (within 1% tolerance), it's a draw 
+      (< price-diff (/ start-price u100))  
+      BET_OUTCOME_DRAW 
+      ;; Check if prediction matches actual price movement 
+      (if (and (is-eq prediction PREDICTION_RISE) (> end-price start-price))  
+        BET_OUTCOME_WIN 
+        (if (and (is-eq prediction PREDICTION_DROP) (< end-price start-price))  
+          BET_OUTCOME_WIN 
+          ;; Otherwise it's a loss 
+          BET_OUTCOME_LOSE))))) 
