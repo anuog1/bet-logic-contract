@@ -89,3 +89,66 @@
     confidence: uint             ;; Confidence level (0-10000 basis points) 
   } 
 ) 
+;; Betting pool data for risk management 
+(define-map daily-pools 
+  { date: uint }                 ;; Unix timestamp (day start) 
+  { 
+    total-rise-bets: uint,       ;; Total amount bet on price rise 
+    total-drop-bets: uint,       ;; Total amount bet on price drop 
+    total-volume: uint,          ;; Total daily volume 
+    bet-count: uint              ;; Number of bets for the day 
+  } 
+) 
+ 
+;; Contract configuration (admin settable) 
+(define-map contract-config 
+  { key: (string-ascii 32) } 
+  { value: uint } 
+) 
+ 
+;; Withdrawal requests (for large payouts) 
+(define-map withdrawal-requests 
+  { request-id: uint } 
+  { 
+    user: principal, 
+    amount: uint, 
+    bet-id: uint, 
+    requested-at: uint, 
+    processed: bool 
+  } 
+) 
+ 
+;; Emergency pause reasons 
+(define-map pause-reasons 
+  { reason-id: uint } 
+  { 
+    reason: (string-ascii 256), 
+    paused-at: uint, 
+    paused-by: principal 
+  } 
+) 
+;; private functions 
+ 
+;; Input validation functions 
+(define-private (is-valid-bet-amount (amount uint)) 
+  (and (>= amount MIN_BET_AMOUNT) (<= amount MAX_BET_AMOUNT))) 
+ 
+(define-private (is-valid-duration (duration uint)) 
+  (and (>= duration MIN_DURATION) (<= duration MAX_DURATION))) 
+ 
+(define-private (is-valid-prediction (prediction uint)) 
+  (or (is-eq prediction PREDICTION_RISE) (is-eq prediction PREDICTION_DROP))) 
+ 
+(define-private (is-contract-active) 
+  (not (var-get contract-paused))) 
+ 
+;; Access control functions 
+(define-private (is-contract-owner) 
+  (is-eq tx-sender CONTRACT_OWNER)) 
+ 
+(define-private (is-authorized-oracle) 
+  (match (var-get oracle-address) 
+    oracle-addr (is-eq tx-sender oracle-addr) 
+    false)) 
+ 
+;; Betting calculation functions
